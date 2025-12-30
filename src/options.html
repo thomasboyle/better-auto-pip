@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Better Auto PiP - Options</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>Better Auto PiP</h1>
+
+  <label class="row">
+    <input type="checkbox" id="enabled" />
+    <span>Enable extension</span>
+  </label>
+
+  <div class="grid">
+    <label>
+      Debounce (ms)
+      <input type="number" id="debounceMs" min="0" max="2000" />
+      <div class="hint">Wait time before triggering to avoid false positives.</div>
+    </label>
+
+    <label>
+      Arm duration (minutes)
+      <input type="number" id="armMinutes" min="1" max="120" />
+      <div class="hint">If PiP is blocked, click the in-page toast to "arm" Better Auto PiP temporarily.</div>
+    </label>
+  </div>
+
+  <label class="row">
+    <input type="checkbox" id="exitOnExpand" />
+    <span>Exit PiP when returning to tab/panel</span>
+  </label>
+  <div class="hint" style="margin-left: 30px; margin-top: -4px;">When enabled, video returns to the tab when you switch back or expand the panel.</div>
+
+  <h2>Settings</h2>
+
+  <div class="grid">
+    <label>
+      Tab switch delay (ms)
+      <input type="number" id="tabSwitchDelay" min="0" max="2000" />
+      <div class="hint">Wait this long before triggering PiP after switching tabs.</div>
+    </label>
+  </div>
+
+  <div id="panelSection">
+    <h3>Panel Collapse (Vivaldi Only)</h3>
+
+    <div class="grid">
+      <label>
+        Collapse width threshold (px)
+        <input type="number" id="collapseWidthPx" min="1" max="200" />
+        <div class="hint">Trigger when viewport width is at or below this value (default: 8px).</div>
+      </label>
+
+      <label>
+        Collapse height threshold (px)
+        <input type="number" id="collapseHeightPx" min="1" max="400" />
+        <div class="hint">Optional trigger if height collapses instead of width (default: 80px).</div>
+      </label>
+    </div>
+  </div>
+
+  <h2>Per-Site Settings</h2>
+  <p class="hint">Configure PiP behavior for supported sites. Additional sites will appear automatically when visited.</p>
+
+  <div id="sites"></div>
+
+  <div class="actions">
+    <button id="save">Save</button>
+    <span id="status"></span>
+  </div>
+
+  <footer class="footer">
+    <p>Developed by <strong>SeanHarsh</strong></p>
+    <p class="footer-links">
+      <a href="https://github.com/seanharsh/Better-Auto-PiP" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <span class="separator">•</span>
+      <span class="version">v0.1.0</span>
+    </p>
+  </footer>
+
+  <script src="options.js"></script>
+</body>
+</html>
