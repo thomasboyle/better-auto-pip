@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Better Auto PiP Extension Diagnostics</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+    }
+    h1 { color: #333; }
+    h2 { color: #666; margin-top: 30px; }
+    .test {
+      background: #f5f5f5;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 5px;
+      border-left: 4px solid #ccc;
+    }
+    .pass { border-left-color: #4CAF50; background: #f1f8f4; }
+    .fail { border-left-color: #f44336; background: #fef1f0; }
+    .info { border-left-color: #2196F3; background: #f0f7ff; }
+    code {
+      background: #e0e0e0;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+    button {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button:hover { background: #1976D2; }
+    #results { margin-top: 20px; }
+    .console-output {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 5px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      max-height: 400px;
+      overflow-y: auto;
+      margin: 10px 0;
+    }
+    .console-output .debug { color: #9cdcfe; }
+    .console-output .error { color: #f48771; }
+    .console-output .success { color: #4ec9b0; }
+  </style>
+</head>
+<body>
+  <h1>Better Auto PiP Extension Diagnostics</h1>
+
+  <div class="test info">
+    <strong>Instructions:</strong>
+    <ol>
+      <li>Make sure the extension is loaded in <code>chrome://extensions</code>code> or </code><code>vivaldi://extensions</code></li>
+      <li>Open the browser console (F12) on this page</li>
+      <li>Run the diagnostic tests below</li>
+      <li>Share the results to help debug the issue</li>
+    </ol>
+  </div>
+
+  <h2>Quick Tests</h2>
+
+  <button onclick="checkExtensionLoaded()">1. Check if Extension is Loaded</button>
+  <button onclick="checkContentScriptInjected()">2. Check Content Script</button>
+  <button onclick="checkStorage()">3. Check Storage/Config</button>
+  <button onclick="testVideoDetection()">4. Test Video Detection</button>
+  <button onclick="testPiPManually()">5. Test PiP Manually</button>
+  <button onclick="clearConsole()">Clear Results</button>
+
+  <div id="results"></div>
+
+  <h2>Test Video Player</h2>
+  <p>A sample video for testing PiP functionality:</p>
+  <video id="testVideo" controls width="640" height="360">
+    <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
+    Your browser doesn't support the video tag.
+  </video>
+
+  <h2>Console Output</h2>
+  <p>Look for <code>[BetterAutoPiP]</code> messages in the browser console (F12).</p>
+  <div class="console-output" id="consoleOutput">
+    Waiting for console messages...
+  </div>
+
+  <script>
+    const results = document.getElementById('results');
+    const consoleOutput = document.getElementById('consoleOutput');
+    let consoleMessages = [];
+
+    // Intercept console messages
+    const originalLog = console.log;
+    const originalDebug = console.debug;
+    const originalError = console.error;
+
+    function addConsoleMessage(type, args) {
+      const message = Array.from(args).map(arg =>
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+
+      consoleMessages.push({ type, message, time: new Date().toLocaleTimeString() });
+      updateConsoleOutput();
+    }
+
+    console.log = function(...args) {
+      addConsoleMessage('log', args);
+      originalLog.apply(console, args);
+    };
+
+    console.debug = function(...args) {
+      addConsoleMessage('debug', args);
+      originalDebug.apply(console, args);
+    };
+
+    console.error = function(...args) {
+      addConsoleMessage('error', args);
+      originalError.apply(console, args);
+    };
+
+    function updateConsoleOutput() {
+      if (consoleMessages.length === 0) {
+        consoleOutput.innerHTML = 'No messages yet...';
+        return;
+      }
+
+      consoleOutput.innerHTML = consoleMessages.map(msg => {
+        const className = msg.message.includes('[BetterAutoPiP]') ? 'success' :
+                         msg.type === 'error' ? 'error' : 'debug';
+        return `<div class="${className}">[${msg.time}] ${msg.message}</div>`;
+      }).join('');
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+    function addResult(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `test ${type}`;
+      div.innerHTML = message;
+      results.appendChild(div);
+      console.log(message.replace(/<[^>]*>/g, '')); // Log to console too
+    }
+
+    function clearConsole() {
+      results.innerHTML = '';
+      consoleMessages = [];
+      updateConsoleOutput();
+    }
+
+    async function checkExtensionLoaded() {
+      addResult('<strong>Test 1: Checking Extension Load</strong>', 'info');
+
+      try {
+        // Check if chrome.runtime is available
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+          addResult('✓ Chrome runtime API is available', 'pass');
+
+          // Try to get extension ID
+          const extensionId = chrome.runtime.id;
+          if (extensionId) {
+            addResult(`✓ Extension ID: <code>${extensionId}</code>`, 'pass');
+          } else {
+            addResult('✗ No extension ID found', 'fail');
+          }
+        } else {
+          addResult('✗ Chrome runtime API not available', 'fail');
+        }
+      } catch (e) {
+        addResult(`✗ Error: ${e.message}`, 'fail');
+      }
+    }
+
+    async function checkContentScriptInjected() {
+      addResult('<strong>Test 2: Checking Content Script Injection</strong>', 'info');
+
+      // Check if window has any BetterAutoPiP related properties
+      const scripts = Array.from(document.querySelectorAll('script'));
+      const hasContentScript = scripts.some(s => s.src && s.src.includes('content.js'));
+
+      if (hasContentScript) {
+        addResult('✓ Content script element found in DOM', 'pass');
+      } else {
+        addResult('✗ Content script not found in DOM', 'fail');
+        addResult('This is expected if the diagnostic page is not in the manifest matches', 'info');
+      }
+
+      // Check for BetterAutoPiP console messages
+      const hasBetterAutoPiPLogs = consoleMessages.some(msg => msg.message.includes('[BetterAutoPiP]'));
+      if (hasBetterAutoPiPLogs) {
+        addResult('✓ BetterAutoPiP console messages detected!', 'pass');
+      } else {
+        addResult('⚠ No BetterAutoPiP console messages yet', 'fail');
+        addResult('Try opening YouTube or another supported site', 'info');
+      }
+    }
+
+    async function checkStorage() {
+      addResult('<strong>Test 3: Checking Storage/Config</strong>', 'info');
+
+      try {
+        if (chrome.storage && chrome.storage.sync) {
+          const config = await chrome.storage.sync.get(null);
+          addResult(`✓ Storage accessible, config: <code>${JSON.stringify(config, null, 2)}</code>`, 'pass');
+        } else {
+          addResult('✗ Chrome storage API not available', 'fail');
+        }
+      } catch (e) {
+        addResult(`✗ Error accessing storage: ${e.message}`, 'fail');
+      }
+    }
+
+    async function testVideoDetection() {
+      addResult('<strong>Test 4: Testing Video Detection</strong>', 'info');
+
+      const videos = document.querySelectorAll('video');
+      if (videos.length > 0) {
+        addResult(`✓ Found ${videos.length} video element(s)`, 'pass');
+        videos.forEach((v, i) => {
+          addResult(`Video ${i+1}: paused=${v.paused}, readyState=${v.readyState}, duration=${v.duration}`, 'info');
+        });
+      } else {
+        addResult('✗ No video elements found', 'fail');
+      }
+    }
+
+    async function testPiPManually() {
+      addResult('<strong>Test 5: Testing PiP Manually</strong>', 'info');
+
+      const video = document.querySelector('video');
+      if (!video) {
+        addResult('✗ No video element found to test', 'fail');
+        return;
+      }
+
+      // Make sure video is playing
+      if (video.paused) {
+        addResult('Starting video playback...', 'info');
+        try {
+          await video.play();
+          addResult('✓ Video playing', 'pass');
+        } catch (e) {
+          addResult(`⚠ Could not auto-play video: ${e.message}. Please click play manually.`, 'fail');
+          return;
+        }
+      }
+
+      // Try to enter PiP
+      try {
+        await video.requestPictureInPicture();
+        addResult('✓ Successfully entered PiP mode!', 'pass');
+        addResult('The extension should be able to do this automatically.', 'info');
+      } catch (e) {
+        addResult(`✗ PiP failed: ${e.name} - ${e.message}`, 'fail');
+        if (e.name === 'NotAllowedError') {
+          addResult('This is a user gesture error. The extension needs to handle this.', 'info');
+        }
+      }
+    }
+
+    // Auto-run initial checks
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        addResult('<h3>Auto-running initial diagnostics...</h3>', 'info');
+        checkExtensionLoaded();
+      }, 500);
+    });
+  </script>
+</body>
+</html>

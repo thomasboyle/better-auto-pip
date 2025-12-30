@@ -1,0 +1,24 @@
+# Build artifacts
+dist/
+*.zip
+
+# Development
+node_modules/
+.DS_Store
+.vscode/
+.idea/
+.claude/
+
+# Temporary files
+*.tmp
+*.log
+*.swp
+*~
+
+# OS files
+Thumbs.db
+desktop.ini
+
+# Extension artifacts
+*.crx
+*.pem

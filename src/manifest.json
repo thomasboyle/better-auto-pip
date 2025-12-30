@@ -1,0 +1,74 @@
+{
+  "manifest_version": 3,
+  "name": "Better Auto PiP",
+  "version": "0.1.0",
+  "description": "Automatically enable Picture-in-Picture for videos when switching tabs or collapsing panels (Vivialdi only). Works with YouTube, Netflix, Plex, Twitch, and more.",
+  "author": "SeanHarsh",
+  "homepage_url": "https://github.com/seanharsh/Better-Auto-PiP",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://app.plex.tv/*",
+    "https://*.plex.tv/*",
+    "https://teams.microsoft.com/*",
+    "https://*.teams.microsoft.com/*",
+    "https://meet.google.com/*",
+    "https://*.meet.google.com/*",
+    "https://www.twitch.tv/*",
+    "https://player.twitch.tv/*",
+    "https://www.netflix.com/*",
+    "https://*.netflix.com/*",
+    "https://www.espn.com/*",
+    "https://*.espn.com/*",
+    "https://www.youtube.com/*",
+    "https://youtube.com/*",
+    "https://www.hulu.com/*",
+    "https://*.hulu.com/*",
+    "https://vimeo.com/*",
+    "https://*.vimeo.com/*",
+    "https://www.dailymotion.com/*",
+    "https://dailymotion.com/*",
+    "https://www.crunchyroll.com/*",
+    "https://*.crunchyroll.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.plex.tv/*",
+        "https://*.plex.tv/*",
+        "https://teams.microsoft.com/*",
+        "https://*.teams.microsoft.com/*",
+        "https://meet.google.com/*",
+        "https://*.meet.google.com/*",
+        "https://www.twitch.tv/*",
+        "https://player.twitch.tv/*",
+        "https://www.netflix.com/*",
+        "https://*.netflix.com/*",
+        "https://www.espn.com/*",
+        "https://*.espn.com/*",
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://www.hulu.com/*",
+        "https://*.hulu.com/*",
+        "https://vimeo.com/*",
+        "https://*.vimeo.com/*",
+        "https://www.dailymotion.com/*",
+        "https://dailymotion.com/*",
+        "https://www.crunchyroll.com/*",
+        "https://*.crunchyroll.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "options_page": "options.html"
+}
