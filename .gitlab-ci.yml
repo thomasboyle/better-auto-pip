@@ -1,0 +1,62 @@
+stages:
+  - build
+  - mirror
+  - release
+
+variables:
+  EXTENSION_DIR: "src"
+
+# Build extension on every push
+build:
+  stage: build
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache zip
+  script:
+    - cd $EXTENSION_DIR
+    - zip -r ../better-auto-pip-$CI_COMMIT_SHORT_SHA.zip . -x "*.git*" -x "*.DS_Store" -x "node_modules/*" -x "*.md"
+  artifacts:
+    paths:
+      - better-auto-pip-$CI_COMMIT_SHORT_SHA.zip
+    expire_in: 30 days
+  only:
+    - dev
+    - main
+
+# Mirror main branch to GitHub
+mirror-to-github:
+  stage: mirror
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache git openssh-client
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan github.com >> ~/.ssh/known_hosts
+    - eval $(ssh-agent -s)
+    # Add GitHub deploy key from GitLab CI/CD variable
+    - echo "$GITHUB_DEPLOY_KEY" | tr -d '\r' | ssh-add -
+  script:
+    - git remote add github git@github.com:seanharsh/Better-Auto-PiP.git || true
+    - git push github HEAD:main --force
+  only:
+    - main
+  when: on_success
+
+# Create release package for main branch
+release:
+  stage: release
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache zip jq
+  script:
+    - cd $EXTENSION_DIR
+    - VERSION=$(jq -r '.version' manifest.json)
+    - zip -r ../better-auto-pip-v$VERSION.zip . -x "*.git*" -x "*.DS_Store" -x "node_modules/*" -x "*.md"
+    - echo "Created release package for version $VERSION"
+  artifacts:
+    paths:
+      - better-auto-pip-v*.zip
+    expire_in: 1 year
+  only:
+    - main
+  when: manual
