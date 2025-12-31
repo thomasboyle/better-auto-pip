@@ -1,5 +1,7 @@
 # Better Auto PiP
 
+![Better Auto PiP Demo](assets/promo-banner.png)
+
 Automatically enable Picture-in-Picture for videos when switching tabs or collapsing Vivaldi panels. Works with YouTube, Netflix, Plex, Twitch, and more.
 
 ## Features
