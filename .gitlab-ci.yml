@@ -33,7 +33,7 @@ build:
     - dev
     - main
 
-# Mirror main branch to GitHub (Linux preferred, fallback to macOS)
+# Mirror main branch to GitHub using HTTPS with Personal Access Token
 mirror-to-github:
   stage: mirror
   before_script:
@@ -41,37 +41,32 @@ mirror-to-github:
     - |
       if [ -f /etc/alpine-release ]; then
         # Alpine Linux (Docker)
-        apk add --no-cache git openssh-client rsync
+        apk add --no-cache git
       elif [ "$(uname)" = "Darwin" ]; then
         # macOS
         which git || echo "git required"
-        which ssh || echo "ssh required"
       else
         # Other Linux
-        apt-get update && apt-get install -y git openssh-client rsync || yum install -y git openssh-clients rsync || true
+        apt-get update && apt-get install -y git || yum install -y git || true
       fi
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - ssh-keyscan github.com >> ~/.ssh/known_hosts
-    - eval $(ssh-agent -s)
-    # Add GitHub deploy key from GitLab CI/CD variable
-    - echo "$GITHUB_DEPLOY_KEY" | tr -d '\r' | ssh-add -
   script:
     # Clone current repo to temp directory
     - git clone --branch main . /tmp/github-mirror
     - cd /tmp/github-mirror
-    # Remove GitLab-specific files (add more exclusions here as needed)
+    # Remove GitLab-specific and internal files
     - rm -f .gitlab-ci.yml
     - rm -f setup-remotes.sh
     - rm -f GIT_SETUP.md
     - rm -f TODO.md
+    - rm -f CHROME_WEB_STORE.md
+    - rm -f GITLAB_SSH_SETUP.md
     # Commit the changes
     - git config user.name "GitLab CI"
     - git config user.email "ci@gitlab.com"
     - git add -A
     - git diff-index --quiet HEAD || git commit -m "Mirror from GitLab [skip ci]"
-    # Push to GitHub
-    - git remote add github git@github.com:seanharsh/Better-Auto-PiP.git || true
+    # Push to GitHub using HTTPS with Personal Access Token
+    - git remote add github https://${GITHUB_TOKEN}@github.com/seanharsh/Better-Auto-PiP.git || true
     - git push github main --force
   only:
     - main
