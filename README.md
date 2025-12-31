@@ -58,7 +58,7 @@ MIT License - See LICENSE file for details
 
 ## Author
 
-**Harshsoft**
+**SeanHarsh**
 - GitHub: https://github.com/seanharsh/Better-Auto-PiP
 
 ## Privacy
