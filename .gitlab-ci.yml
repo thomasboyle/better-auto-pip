@@ -64,6 +64,7 @@ mirror-to-github:
     - rm -f .gitlab-ci.yml
     - rm -f setup-remotes.sh
     - rm -f GIT_SETUP.md
+    - rm -f TODO.md
     # Commit the changes
     - git config user.name "GitLab CI"
     - git config user.email "ci@gitlab.com"
