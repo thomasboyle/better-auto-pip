@@ -29,9 +29,6 @@ build:
     paths:
       - better-auto-pip-$CI_COMMIT_SHORT_SHA.zip
     expire_in: 30 days
-  tags:
-    - linux
-    - macos
   only:
     - dev
     - main
@@ -75,9 +72,6 @@ mirror-to-github:
     # Push to GitHub
     - git remote add github git@github.com:seanharsh/Better-Auto-PiP.git || true
     - git push github main --force
-  tags:
-    - linux
-    - macos
   only:
     - main
   when: on_success
@@ -108,8 +102,5 @@ release:
     paths:
       - better-auto-pip-v*.zip
     expire_in: never
-  tags:
-    - linux
-    - macos
   only:
     - main
