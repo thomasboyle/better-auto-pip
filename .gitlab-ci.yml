@@ -1,3 +1,7 @@
+workflow:
+  rules:
+    - when: always
+
 stages:
   - build
   - mirror
@@ -33,7 +37,7 @@ build:
     - dev
     - main
 
-# Mirror main branch to GitHub using HTTPS with Personal Access Token
+# Mirror main branch to GitHub using git-filter-repo
 mirror-to-github:
   stage: mirror
   before_script:
@@ -41,33 +45,35 @@ mirror-to-github:
     - |
       if [ -f /etc/alpine-release ]; then
         # Alpine Linux (Docker)
-        apk add --no-cache git
+        apk add --no-cache git python3 py3-pip openssh-client
       elif [ "$(uname)" = "Darwin" ]; then
         # macOS
         which git || echo "git required"
+        which python3 || echo "python3 required"
+        pip3 --version || python3 -m ensurepip
       else
         # Other Linux
-        apt-get update && apt-get install -y git || yum install -y git || true
+        apt-get update && apt-get install -y git python3-pip openssh-client || yum install -y git python3-pip openssh-clients || true
       fi
+    - pip3 install git-filter-repo
+    - git config --global user.email "harshy@dersoldat.org"
+    - git config --global user.name "SeanHarsh"
   script:
-    # Clone current repo to temp directory
-    - git clone --branch main . /tmp/github-mirror
-    - cd /tmp/github-mirror
-    # Remove GitLab-specific and internal files
-    - rm -f .gitlab-ci.yml
-    - rm -f setup-remotes.sh
-    - rm -f GIT_SETUP.md
-    - rm -f TODO.md
-    - rm -f CHROME_WEB_STORE.md
-    - rm -f GITLAB_SSH_SETUP.md
-    # Commit the changes
-    - git config user.name "GitLab CI"
-    - git config user.email "ci@gitlab.com"
-    - git add -A
-    - git diff-index --quiet HEAD || git commit -m "Mirror from GitLab [skip ci]"
-    # Push to GitHub using HTTPS with Personal Access Token
-    - git remote add github https://${GITHUB_TOKEN}@github.com/seanharsh/Better-Auto-PiP.git || true
-    - git push github main --force
+    # Ensure full history for filtering
+    - git fetch --unshallow || git fetch --all --tags
+
+    # Clone into a clean temp directory for filtering
+    - rm -rf /tmp/filtered && git clone --no-tags --filter=blob:none . /tmp/filtered
+    - cd /tmp/filtered
+    - git checkout -B to-push "$CI_COMMIT_SHA"
+
+    # Remove GitLab-specific and internal files from all history
+    - git filter-repo --force --invert-paths --path .gitlab-ci.yml --path setup-remotes.sh --path GIT_SETUP.md --path TODO.md --path CHROME_WEB_STORE.md --path GITLAB_SSH_SETUP.md --path PERMISSIONS.md --path PUBLISHING.md
+
+    # Add remote and push to GitHub
+    - git remote remove github 2>/dev/null || true
+    - git remote add github https://oauth2:${GITHUB_TOKEN}@github.com/seanharsh/Better-Auto-PiP.git
+    - git push github to-push:main --force
   only:
     - main
   when: on_success
