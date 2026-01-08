@@ -22,6 +22,7 @@
     debounceTimer: null,
     toastEl: null,
     bannerEl: null,
+    floatingToggle: null,
     isInPiP: false,
     lastVisibilityState: document.visibilityState,
     lastViewportKey: null,
@@ -40,9 +41,30 @@
 
   // Check if running in Vivaldi browser
   function isVivaldi() {
-    // Check for Vivaldi-specific properties
-    // Vivaldi exposes window.vivaldi object
-    return !!(window.vivaldi) || navigator.userAgent.includes("Vivaldi");
+    // Method 1: Check for window.vivaldi object (most reliable)
+    const hasVivaldiObject = !!(window.vivaldi);
+
+    // Method 2: Check user agent
+    const hasVivaldiUA = navigator.userAgent.includes("Vivaldi");
+
+    // Method 3: Check for Vivaldi-specific navigator properties
+    const hasVivaldiVendor = navigator.vendor && navigator.vendor.includes("Vivaldi");
+
+    const detected = hasVivaldiObject || hasVivaldiUA || hasVivaldiVendor;
+
+    log(`Vivaldi detection: window.vivaldi=${hasVivaldiObject}, UA=${hasVivaldiUA}, vendor=${hasVivaldiVendor}`);
+
+    // Report to background for centralized detection
+    if (detected) {
+      chrome.runtime.sendMessage({
+        action: "reportUserAgent",
+        userAgent: navigator.userAgent,
+        hasVivaldiObject: hasVivaldiObject,
+        vendor: navigator.vendor
+      }).catch(() => {});
+    }
+
+    return detected;
   }
 
   const log = (...args) => {
@@ -77,20 +99,39 @@
   }
 
   function isVivaldiPanel() {
-    // Panel features only work in Vivaldi
-    if (!isVivaldi()) {
-      return false;
-    }
-
-    // Vivaldi web panels inject specific markers or have unique window properties
-    // Check if we're in a Vivaldi panel context
     try {
-      // Check if viewport is very narrow (typical of panel)
-      const { w } = getViewportSize();
-      // Panels typically start around 300-400px but can be resized
-      // We'll use viewport width as a heuristic along with other factors
-      return w > 0 && w < 600; // Likely a panel if narrower than typical browser window
-    } catch {
+      // Get viewport and screen info
+      const { w, h } = getViewportSize();
+      const screenW = window.screen.width;
+      const screenH = window.screen.height;
+
+      // Check various Vivaldi panel indicators
+      const hasVivaldi = !!(window.vivaldi);
+      const isVivaldiBrowser = navigator.userAgent.includes("Vivaldi");
+      const hasVivaldiPanelName = window.name && window.name.startsWith('vivaldi-webpanel-');
+      const hasVivaldiPanelHooks = window.vivaldi?.jdhooks !== undefined;
+      const noOpener = window.opener === null;
+      const isTopFrame = window === window.top;
+
+      // Check if URL contains panel indicators
+      const urlHasPanel = window.location.href.includes('vivaldi://webpanel') ||
+                         window.location.href.includes('vivaldi-webpanel');
+
+      // Heuristic: narrow + tall + top frame + no opener
+      const aspectRatio = h / w;
+      const isNarrowAndTall = w < (screenW * 0.6) && aspectRatio > 1.2;
+      const isPanelByHeuristic = isTopFrame && noOpener && isNarrowAndTall;
+
+      // A panel is detected if ANY specific indicator exists
+      const isPanel = hasVivaldiPanelName || hasVivaldiPanelHooks || urlHasPanel ||
+                     (isVivaldiBrowser && isPanelByHeuristic);
+
+      // Always log detection details
+      log(`Panel detection: vivaldi=${hasVivaldi}, browser=${isVivaldiBrowser}, name="${window.name}", panelName=${hasVivaldiPanelName}, hooks=${hasVivaldiPanelHooks}, url=${urlHasPanel}, heuristic=${isPanelByHeuristic}, topFrame=${isTopFrame}, opener=${window.opener !== null}, w=${w}/${screenW}, h=${h}/${screenH}, aspect=${aspectRatio.toFixed(2)}, RESULT=${isPanel ? 'PANEL' : 'TAB'}`);
+
+      return isPanel;
+    } catch (e) {
+      log(`Panel detection error: ${e.message}`);
       return false;
     }
   }
@@ -441,6 +482,113 @@
     state.bannerEl = null;
   }
 
+  async function createFloatingToggle() {
+    if (state.floatingToggle) return; // Already exists
+
+    // Ensure body exists
+    if (!document.body) {
+      log("Body not ready, retrying...");
+      setTimeout(createFloatingToggle, 500);
+      return;
+    }
+
+    // Ensure styles are injected first
+    injectStylesOnce();
+
+    const cfg = await loadConfig();
+    const host = hostKey();
+    const siteSettings = cfg.siteSettings[host] || {};
+
+    // Check if running in Vivaldi and if this is a panel
+    let isVivaldiDetected = false;
+    let isPanel = false;
+    try {
+      log("Requesting Vivaldi status from background...");
+      const response = await chrome.runtime.sendMessage({ action: "isVivaldi" });
+      isVivaldiDetected = response?.isVivaldi || false;
+      isPanel = response?.isPanel || false;
+      log(`Vivaldi status received: isVivaldi=${isVivaldiDetected}, isPanel=${isPanel}`);
+    } catch (e) {
+      log("Error getting Vivaldi status:", e);
+    }
+
+    // Determine which setting to use based on panel detection
+    const settingKey = isPanel ? 'enablePanel' : 'enableTab';
+    const contextLabel = isPanel ? '(Panel)' : '(Tab)';
+    const isEnabled = siteSettings[settingKey] !== false;
+
+    const el = document.createElement("div");
+    el.className = `betterautopip-floating-toggle ${isEnabled ? 'enabled' : 'disabled'}`;
+
+    // Get extension icon URL
+    const iconUrl = chrome.runtime.getURL('icons/icon48.png');
+
+    el.innerHTML = `
+      <div class="betterautopip-floating-toggle-icon">
+        <img src="${iconUrl}" alt="Better Auto PiP">
+      </div>
+      <div class="betterautopip-floating-toggle-text">
+        Auto PiP ${contextLabel}
+        <span class="betterautopip-floating-toggle-status">${isEnabled ? 'ON' : 'OFF'}</span>
+      </div>
+    `;
+
+    // Click: Toggle ON/OFF for appropriate context
+    el.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const currentCfg = await loadConfig();
+      const currentHost = hostKey();
+      const currentSettings = currentCfg.siteSettings[currentHost] || {};
+
+      // Re-check context in case it changed
+      let currentIsPanel = false;
+      try {
+        const response = await chrome.runtime.sendMessage({ action: "isVivaldi" });
+        currentIsPanel = response?.isPanel || false;
+      } catch (err) {
+        log("Error re-checking panel status:", err);
+      }
+
+      const currentSettingKey = currentIsPanel ? 'enablePanel' : 'enableTab';
+
+      // Toggle appropriate setting
+      const currentlyEnabled = currentSettings[currentSettingKey] !== false;
+      const newEnabled = !currentlyEnabled;
+
+      const newSiteSettings = {
+        ...currentCfg.siteSettings,
+        [currentHost]: {
+          ...currentSettings,
+          [currentSettingKey]: newEnabled
+        }
+      };
+
+      await chrome.storage.sync.set({ siteSettings: newSiteSettings });
+
+      // Update UI
+      el.className = `betterautopip-floating-toggle ${newEnabled ? 'enabled' : 'disabled'}`;
+      el.querySelector('.betterautopip-floating-toggle-status').textContent = newEnabled ? 'ON' : 'OFF';
+
+      log(`Auto PiP ${newEnabled ? 'enabled' : 'disabled'} for ${currentHost} (${currentSettingKey})`);
+
+      // Brief visual feedback
+      el.style.transform = 'scale(1.1)';
+      setTimeout(() => {
+        el.style.transform = '';
+      }, 200);
+    });
+
+    document.body.appendChild(el);
+    state.floatingToggle = el;
+    log(`Floating toggle button added to page (Vivaldi: ${isVivaldiDetected}, Panel: ${isPanel})`);
+  }
+
+  function removeFloatingToggle() {
+    if (!state.floatingToggle) return;
+    state.floatingToggle.remove();
+    state.floatingToggle = null;
+  }
+
   function injectStylesOnce() {
     if (document.getElementById("betterautopip-style")) return;
     const style = document.createElement("style");
@@ -528,6 +676,100 @@
 
       .betterautopip-banner-close:hover{
         background: rgba(255,255,255,0.3);
+      }
+
+      .betterautopip-floating-toggle{
+        position: fixed;
+        z-index: 2147483645;
+        bottom: 20px;
+        left: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        background: rgba(30, 30, 30, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: 24px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: #fff;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.3s ease;
+        opacity: 0.7;
+      }
+
+      .betterautopip-floating-toggle:hover{
+        opacity: 1;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+      }
+
+      .betterautopip-floating-toggle-icon{
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      }
+
+      .betterautopip-floating-toggle-icon img{
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .betterautopip-floating-toggle-icon::after{
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: -2px;
+        right: -2px;
+        height: 2px;
+        background: #ff4444;
+        transform: translateY(-50%) rotate(-45deg);
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+
+      .betterautopip-floating-toggle.disabled .betterautopip-floating-toggle-icon::after{
+        opacity: 1;
+      }
+
+      .betterautopip-floating-toggle-text{
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      .betterautopip-floating-toggle-status{
+        font-size: 11px;
+        opacity: 0.8;
+        margin-left: 4px;
+      }
+
+      .betterautopip-floating-toggle.enabled{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+
+      .betterautopip-floating-toggle.disabled{
+        background: rgba(80, 80, 80, 0.95);
+      }
+
+      @keyframes betterautopip-float-in {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 0.7;
+          transform: translateY(0);
+        }
+      }
+
+      .betterautopip-floating-toggle{
+        animation: betterautopip-float-in 0.4s ease-out;
       }
     `;
     document.documentElement.appendChild(style);
@@ -795,12 +1037,18 @@
     log(`Current URL: ${location.href}`);
     log(`Viewport size: ${JSON.stringify(getViewportSize())}`);
 
+    // Detect and report Vivaldi immediately
+    isVivaldi();
+
     hookViewportEvents();
     setupVideoObserver();
     initYouTube();
 
     // initial run
     tick();
+
+    // Create floating toggle button after content loads
+    setTimeout(createFloatingToggle, 2000);
 
     // Run again after a delay for dynamic content
     setTimeout(tick, 2000);
