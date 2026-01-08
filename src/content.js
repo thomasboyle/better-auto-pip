@@ -960,6 +960,12 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     log("Message received:", message);
 
+    if (message.action === "ping") {
+      // Respond to ping to confirm content script is loaded
+      sendResponse({ pong: true });
+      return false;
+    }
+
     if (message.action === "tryPiP") {
       loadConfig().then(cfg => {
         tryEnterPiP(cfg, message.reason || "background");

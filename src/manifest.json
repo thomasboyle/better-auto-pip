@@ -21,7 +21,7 @@
     },
     "default_title": "Better Auto PiP"
   },
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "scripting"],
   "host_permissions": [
     "https://app.plex.tv/*",
     "https://*.plex.tv/*",
