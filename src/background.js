@@ -13,10 +13,45 @@ const DEFAULTS = {
 
 const state = {
   lastActiveTab: null,
-  tabTimers: {}
+  tabTimers: {},
+  isVivaldi: false
 };
 
 const log = (...args) => console.debug("[BetterAutoPiP Background]", ...args);
+
+// Detect if running in Vivaldi browser
+async function detectVivaldi() {
+  try {
+    // Method 1: Check for Vivaldi API (most reliable)
+    const hasVivaldiAPI = typeof chrome.vivaldi !== 'undefined';
+    if (hasVivaldiAPI) {
+      state.isVivaldi = true;
+      log(`Vivaldi detected: ${state.isVivaldi}`);
+      return;
+    }
+
+    // Method 2: Check for Vivaldi-specific runtime info
+    if (chrome.runtime && chrome.runtime.getBrowserInfo) {
+      const browserInfo = await chrome.runtime.getBrowserInfo();
+      if (browserInfo.name && browserInfo.name.toLowerCase().includes('vivaldi')) {
+        state.isVivaldi = true;
+        log(`Vivaldi detected: ${state.isVivaldi}`);
+        return;
+      }
+    }
+
+    // Method 3: Check for vivExtData in windows (not splitViewId as Chrome may have it)
+    const windows = await chrome.windows.getAll();
+    if (windows.length > 0 && 'vivExtData' in windows[0]) {
+      state.isVivaldi = true;
+    }
+
+    log(`Vivaldi detected: ${state.isVivaldi}`);
+  } catch (e) {
+    log("Error detecting Vivaldi:", e);
+    state.isVivaldi = false;
+  }
+}
 
 // Load configuration
 async function loadConfig() {
@@ -87,12 +122,84 @@ async function onTabUpdated(tabId, changeInfo, tab) {
 
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  log("Message received:", message);
-
   if (message.action === "pipEntered") {
     log("PiP entered in tab", sender.tab?.id);
   } else if (message.action === "pipExited") {
     log("PiP exited in tab", sender.tab?.id);
+  } else if (message.action === "isVivaldi") {
+    // Content script asking if we're running in Vivaldi and if it's in a panel
+    const tabId = sender.tab?.id;
+
+    // Function to handle the Vivaldi detection request
+    const handleRequest = async () => {
+      // Re-detect if not yet detected (in case content script loads before background finishes init)
+      if (!state.isVivaldi) {
+        log("Re-running Vivaldi detection for content script request...");
+        await detectVivaldi();
+      }
+
+      if (tabId && state.isVivaldi) {
+        try {
+          const [tab, window] = await Promise.all([
+            chrome.tabs.get(tabId),
+            chrome.windows.get(sender.tab.windowId)
+          ]);
+
+          // Vivaldi panel detection
+          // Strategy: A web panel is active when SELECTED_PANEL starts with "WEBPANEL_"
+          // To identify which tab IS the panel (vs regular tabs), check if the tab
+          // occupies significantly less width than the window (< 70%)
+          let isPanel = false;
+
+          // Parse vivExtData if it's a string (Vivaldi returns it as JSON string)
+          let vivExtDataObj = null;
+          if (window.vivExtData) {
+            if (typeof window.vivExtData === 'string') {
+              try {
+                vivExtDataObj = JSON.parse(window.vivExtData);
+              } catch (e) {
+                log(`Failed to parse vivExtData: ${e.message}`);
+              }
+            } else if (typeof window.vivExtData === 'object') {
+              vivExtDataObj = window.vivExtData;
+            }
+          }
+
+          // Check if a web panel is currently selected
+          let webPanelActive = false;
+          if (vivExtDataObj && vivExtDataObj.SELECTED_PANEL) {
+            webPanelActive = vivExtDataObj.SELECTED_PANEL.startsWith("WEBPANEL_");
+          } else if (vivExtDataObj && vivExtDataObj.SHOW_PANEL === true) {
+            webPanelActive = true;
+          }
+
+          // If a web panel is active, determine if THIS tab is the panel tab
+          // by checking if it's narrower than typical tabs (< 70% of window width)
+          if (webPanelActive) {
+            const tabWidth = tab.width || 0;
+            const windowWidth = window.width || 0;
+            const widthRatio = windowWidth > 0 ? (tabWidth / windowWidth) : 1;
+
+            if (widthRatio < 0.70) {
+              isPanel = true;
+            }
+          }
+
+          log(`Tab ${tabId}: isPanel=${isPanel}`)
+
+          sendResponse({ isVivaldi: state.isVivaldi, isPanel: isPanel });
+        } catch (err) {
+          log(`Error detecting panel: ${err}`);
+          sendResponse({ isVivaldi: state.isVivaldi, isPanel: false });
+        }
+      } else {
+        log(`Content script requesting Vivaldi status, responding with isVivaldi: ${state.isVivaldi}, isPanel: false`);
+        sendResponse({ isVivaldi: state.isVivaldi, isPanel: false });
+      }
+    };
+
+    handleRequest();
+    return true; // Keep message channel open for async response
   }
 
   return false;
@@ -103,4 +210,5 @@ chrome.tabs.onActivated.addListener(onTabActivated);
 chrome.tabs.onUpdated.addListener(onTabUpdated);
 
 // Initialize
+detectVivaldi();
 log("Background service worker initialized");
