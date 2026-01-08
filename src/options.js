@@ -26,15 +26,18 @@ const PIP_SITES = [
 
 function $(id) { return document.getElementById(id); }
 
-function isVivaldi() {
-  // Note: Vivaldi browser detection is unreliable on extension pages
-  // The window.vivaldi API and user agent string may not be available
-  // Since panel settings don't hurt on non-Vivaldi browsers (content script
-  // has proper detection), we'll just always show panel options
-  return true;
+async function isVivaldi() {
+  // Ask the background script for Vivaldi detection status
+  try {
+    const response = await chrome.runtime.sendMessage({ action: "isVivaldi" });
+    return response?.isVivaldi || false;
+  } catch (e) {
+    console.error("Error detecting Vivaldi:", e);
+    return false;
+  }
 }
 
-function renderSites(cfg) {
+function renderSites(cfg, showPanelColumn) {
   const wrap = $("sites");
   wrap.innerHTML = "";
 
@@ -44,13 +47,18 @@ function renderSites(cfg) {
   const table = document.createElement("table");
   table.className = "site-table";
   const thead = document.createElement("thead");
-  thead.innerHTML = `
+
+  let headerHTML = `
     <tr>
       <th>Site</th>
-      <th>Tab Switching</th>
-      <th class="panel-column">Panel Collapse</th>
-    </tr>
-  `;
+      <th>Tab Switching</th>`;
+
+  if (showPanelColumn) {
+    headerHTML += `<th class="panel-column">Panel Collapse</th>`;
+  }
+
+  headerHTML += `</tr>`;
+  thead.innerHTML = headerHTML;
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
@@ -75,16 +83,18 @@ function renderSites(cfg) {
     tdTab.appendChild(cbTab);
     row.appendChild(tdTab);
 
-    // Panel collapse checkbox
-    const tdPanel = document.createElement("td");
-    tdPanel.className = "panel-column";
-    const cbPanel = document.createElement("input");
-    cbPanel.type = "checkbox";
-    cbPanel.dataset.host = host;
-    cbPanel.dataset.setting = "panel";
-    cbPanel.checked = settings.enablePanel !== false;
-    tdPanel.appendChild(cbPanel);
-    row.appendChild(tdPanel);
+    // Panel collapse checkbox (only if Vivaldi)
+    if (showPanelColumn) {
+      const tdPanel = document.createElement("td");
+      tdPanel.className = "panel-column";
+      const cbPanel = document.createElement("input");
+      cbPanel.type = "checkbox";
+      cbPanel.dataset.host = host;
+      cbPanel.dataset.setting = "panel";
+      cbPanel.checked = settings.enablePanel !== false;
+      tdPanel.appendChild(cbPanel);
+      row.appendChild(tdPanel);
+    }
 
     tbody.appendChild(row);
   }
@@ -104,8 +114,14 @@ async function load() {
   $("exitOnExpand").checked = !!cfg.exitOnExpand;
   $("tabSwitchDelay").value = cfg.tabSwitchDelay;
 
-  // Panel section is always shown (content script handles browser detection)
-  renderSites(cfg);
+  // Detect Vivaldi and hide/show panel options accordingly
+  const vivaldiDetected = await isVivaldi();
+  const panelSection = $("panelSection");
+  if (panelSection) {
+    panelSection.style.display = vivaldiDetected ? "block" : "none";
+  }
+
+  renderSites(cfg, vivaldiDetected);
 }
 
 async function save() {
