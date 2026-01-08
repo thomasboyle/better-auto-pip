@@ -71,6 +71,34 @@ function isSiteEnabled(cfg, url) {
   }
 }
 
+// Ensure content script is injected and ready
+async function ensureContentScriptInjected(tabId, tabUrl) {
+  try {
+    // First, try to ping the content script
+    const response = await chrome.tabs.sendMessage(tabId, { action: "ping" }).catch(() => null);
+    if (response?.pong) {
+      return true; // Content script is already loaded
+    }
+  } catch (e) {
+    // Content script not responding
+  }
+
+  // Content script not loaded, try to inject it
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ['content.js']
+    });
+    log(`Content script injected into tab ${tabId}`);
+    // Wait a bit for the script to initialize
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return true;
+  } catch (e) {
+    log(`Failed to inject content script into tab ${tabId}:`, e.message);
+    return false;
+  }
+}
+
 // Handle tab activation (switching tabs)
 async function onTabActivated(activeInfo) {
   const cfg = await loadConfig();
@@ -88,14 +116,21 @@ async function onTabActivated(activeInfo) {
     try {
       const tab = await chrome.tabs.get(state.lastActiveTab);
       if (tab && tab.url && isSiteEnabled(cfg, tab.url)) {
-        // Send message to the old tab to try entering PiP
-        chrome.tabs.sendMessage(state.lastActiveTab, {
-          action: "tryPiP",
-          reason: "tabSwitch"
-        }).catch(() => {
-          // Tab might not have content script loaded
-          log("Could not send message to tab", state.lastActiveTab);
-        });
+        // Ensure content script is loaded before sending message
+        const isInjected = await ensureContentScriptInjected(state.lastActiveTab, tab.url);
+
+        if (isInjected) {
+          // Send message to the old tab to try entering PiP
+          chrome.tabs.sendMessage(state.lastActiveTab, {
+            action: "tryPiP",
+            reason: "tabSwitch"
+          }).catch((e) => {
+            // Tab might not have content script loaded
+            log("Could not send message to tab", state.lastActiveTab, e.message);
+          });
+        } else {
+          log("Content script not available for tab", state.lastActiveTab);
+        }
       }
     } catch (e) {
       // Tab might have been closed
