@@ -27,7 +27,9 @@
     lastVisibilityState: document.visibilityState,
     lastViewportKey: null,
     tabSwitchFailCount: 0,
-    lastUserInteraction: 0
+    lastUserInteraction: 0,
+    mediaSessionHandlerRegistered: false,
+    supportsAutoPiP: false
   };
 
   // Check if extension context is still valid
@@ -88,6 +90,96 @@
     state.armedUntil = now() + minutes * 60 * 1000;
     state.tabSwitchFailCount = 0; // Reset fail count when armed
     log(`Extension armed for ${minutes} minutes`);
+  }
+
+  // Check if browser supports automatic PiP via Media Session API (Chrome 134+ for media playback)
+  function checkAutoPiPSupport() {
+    try {
+      if (!navigator.mediaSession) {
+        log("Media Session API not available");
+        return false;
+      }
+
+      try {
+        navigator.mediaSession.setActionHandler("enterpictureinpicture", null);
+        log("Media Session enterpictureinpicture action supported");
+        return true;
+      } catch {
+        log("Media Session enterpictureinpicture action not supported");
+        return false;
+      }
+    } catch (e) {
+      log("Error checking Media Session support:", e);
+      return false;
+    }
+  }
+
+  async function registerMediaSessionHandler() {
+    if (state.mediaSessionHandlerRegistered || !state.supportsAutoPiP) return;
+
+    try {
+      const cfg = await loadConfig();
+      if (!cfg.enabled || !isSiteEnabled(cfg, "tab")) {
+        log("Media Session handler not registered (disabled for tabs)");
+        return;
+      }
+
+      navigator.mediaSession.setActionHandler("enterpictureinpicture", async () => {
+        log("Media Session enterpictureinpicture action triggered");
+
+        const currentCfg = await loadConfig();
+        if (!currentCfg.enabled || !isSiteEnabled(currentCfg, "tab")) {
+          log("Extension disabled, ignoring Media Session trigger");
+          return;
+        }
+
+        const video = getBestVideo();
+        if (!video) {
+          log("No video found for Media Session PiP");
+          return;
+        }
+
+        if (document.pictureInPictureElement) {
+          log("Already in PiP mode");
+          return;
+        }
+
+        try {
+          await video.requestPictureInPicture();
+          state.isInPiP = true;
+          state.tabSwitchFailCount = 0;
+          hideToast();
+          hideBanner();
+          log("Entered PiP via Media Session API");
+
+          try {
+            if (chrome.runtime?.id) {
+              chrome.runtime.sendMessage({ action: "pipEntered", reason: "mediaSession" });
+            }
+          } catch (e) {
+            log("Could not notify background script:", e.message);
+          }
+        } catch (e) {
+          log("Media Session PiP request failed:", e?.name, e?.message);
+        }
+      });
+
+      state.mediaSessionHandlerRegistered = true;
+      log("Media Session handler registered");
+    } catch (e) {
+      log("Failed to register Media Session handler:", e?.message);
+    }
+  }
+
+  function unregisterMediaSessionHandler() {
+    if (!state.mediaSessionHandlerRegistered) return;
+    try {
+      navigator.mediaSession.setActionHandler("enterpictureinpicture", null);
+      state.mediaSessionHandlerRegistered = false;
+      log("Media Session handler unregistered");
+    } catch (e) {
+      log("Failed to unregister Media Session handler:", e?.message);
+    }
   }
 
   function getViewportSize() {
@@ -571,6 +663,14 @@
 
       log(`Auto PiP ${newEnabled ? 'enabled' : 'disabled'} for ${currentHost} (${currentSettingKey})`);
 
+      if (currentSettingKey === 'enableTab') {
+        if (newEnabled) {
+          registerMediaSessionHandler();
+        } else {
+          unregisterMediaSessionHandler();
+        }
+      }
+
       // Brief visual feedback
       el.style.transform = 'scale(1.1)';
       setTimeout(() => {
@@ -933,8 +1033,18 @@
     // Tab became hidden (switched away)
     if (currentState === "hidden" && state.lastVisibilityState === "visible") {
       if (isSiteEnabled(cfg, 'tab')) {
-        log("Tab hidden - attempting PiP");
-        setTimeout(() => tryEnterPiP(cfg, "tabSwitch"), cfg.tabSwitchDelay);
+        if (state.mediaSessionHandlerRegistered) {
+          log("Tab hidden - Media Session handler registered, waiting for auto PiP");
+          setTimeout(async () => {
+            if (!document.pictureInPictureElement && !state.isInPiP) {
+              log("Auto PiP did not trigger, attempting fallback");
+              await tryEnterPiP(cfg, "tabSwitch");
+            }
+          }, cfg.tabSwitchDelay + 200);
+        } else {
+          log("Tab hidden - attempting PiP (no Media Session support)");
+          setTimeout(() => tryEnterPiP(cfg, "tabSwitch"), cfg.tabSwitchDelay);
+        }
       } else {
         log("Tab switching disabled for this site");
       }
@@ -986,6 +1096,7 @@
               log("New video element detected");
               // Video was added, re-run tick after a short delay
               setTimeout(tick, 500);
+              setTimeout(registerMediaSessionHandler, 600);
               break;
             }
           }
@@ -1046,6 +1157,9 @@
     // Detect and report Vivaldi immediately
     isVivaldi();
 
+    // Check for automatic PiP support (Chrome 134+)
+    state.supportsAutoPiP = checkAutoPiPSupport();
+
     hookViewportEvents();
     setupVideoObserver();
     initYouTube();
@@ -1058,5 +1172,8 @@
 
     // Run again after a delay for dynamic content
     setTimeout(tick, 2000);
+
+    // Register Media Session handler after a short delay to ensure video is loaded
+    setTimeout(registerMediaSessionHandler, 1000);
   })();
 })();
