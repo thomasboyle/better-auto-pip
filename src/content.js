@@ -606,21 +606,20 @@
 
     // Determine which setting to use based on panel detection
     const settingKey = isPanel ? 'enablePanel' : 'enableTab';
-    const contextLabel = isPanel ? '(Panel)' : '(Tab)';
     const isEnabled = siteSettings[settingKey] !== false;
 
     const el = document.createElement("div");
     el.className = `betterautopip-floating-toggle ${isEnabled ? 'enabled' : 'disabled'}`;
 
-    // Get extension icon URL
-    const iconUrl = chrome.runtime.getURL('icons/icon48.png');
-
     el.innerHTML = `
       <div class="betterautopip-floating-toggle-icon">
-        <img src="${iconUrl}" alt="Better Auto PiP">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="2" y="4" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
+          <rect x="12" y="11" width="8" height="5" rx="1" fill="currentColor"/>
+        </svg>
       </div>
       <div class="betterautopip-floating-toggle-text">
-        Auto PiP ${contextLabel}
+        Auto PiP
         <span class="betterautopip-floating-toggle-status">${isEnabled ? 'ON' : 'OFF'}</span>
       </div>
     `;
@@ -815,10 +814,11 @@
         position: relative;
       }
 
-      .betterautopip-floating-toggle-icon img{
+      .betterautopip-floating-toggle-icon svg{
         width: 100%;
         height: 100%;
         display: block;
+        color: #fff;
       }
 
       .betterautopip-floating-toggle-icon::after{
