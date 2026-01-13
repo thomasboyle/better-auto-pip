@@ -6,12 +6,22 @@
   "author": "SeanHarsh",
   "homepage_url": "https://github.com/seanharsh/Better-Auto-PiP",
   "icons": {
-    "16": "icons/icon16.png",
-    "32": "icons/icon32.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "16": "icons/icon16-logo.png",
+    "32": "icons/icon32-logo.png",
+    "48": "icons/icon48-logo.png",
+    "128": "icons/icon128-logo.png"
   },
-  "permissions": ["storage", "tabs"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16-toolbar.png",
+      "32": "icons/icon32-toolbar.png",
+      "48": "icons/icon48-toolbar.png",
+      "128": "icons/icon128-toolbar.png"
+    },
+    "default_title": "Better Auto PiP"
+  },
+  "permissions": ["storage", "tabs", "scripting"],
   "host_permissions": [
     "https://app.plex.tv/*",
     "https://*.plex.tv/*",
