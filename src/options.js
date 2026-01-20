@@ -7,7 +7,6 @@ const DEFAULTS = {
   exitOnExpand: true,
   siteSettings: {},
   tabSwitchDelay: 500,
-  showFloatingButton: true,
   showBlockAlerts: true
 };
 
@@ -26,63 +25,66 @@ const PIP_SITES = [
   "www.crunchyroll.com"
 ];
 
-function $(id) { return document.getElementById(id); }
+const $ = document.getElementById.bind(document);
 
+let cachedIsVivaldi = null;
 async function isVivaldi() {
+  if (cachedIsVivaldi !== null) return cachedIsVivaldi;
   try {
     const res = await chrome.runtime.sendMessage({ action: "isVivaldi" });
-    return res && res.isVivaldi;
+    cachedIsVivaldi = !!(res && res.isVivaldi);
+    return cachedIsVivaldi;
   } catch {
+    cachedIsVivaldi = false;
     return false;
   }
 }
 
 function renderSites(cfg, showPanel) {
   const wrap = $("sites");
-  wrap.textContent = ""; // Fast clear
+  wrap.textContent = "";
 
   const hosts = new Set(PIP_SITES);
-  if (cfg.siteSettings) {
-    for (const k in cfg.siteSettings) hosts.add(k);
+  const siteSettings = cfg.siteSettings;
+  if (siteSettings) {
+    for (const k in siteSettings) hosts.add(k);
   }
 
-  const frag = document.createDocumentFragment();
+  const hostsArr = Array.from(hosts);
+  const hostsLen = hostsArr.length;
   const table = document.createElement("table");
   table.className = "site-table";
 
   const thead = document.createElement("thead");
-  // Use simple string concat for static header
   thead.innerHTML = `<tr><th>Site</th><th>Tab Switching</th>${showPanel ? '<th class="panel-column">Panel Collapse</th>' : ''}</tr>`;
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
-
-  for (const host of hosts) {
-    const s = (cfg.siteSettings && cfg.siteSettings[host]) || { enableTab: true, enablePanel: true };
+  for (let i = 0; i < hostsLen; i++) {
+    const host = hostsArr[i];
+    const s = siteSettings && siteSettings[host] || { enableTab: true, enablePanel: true };
     const row = document.createElement("tr");
 
     const tdSite = document.createElement("td");
     tdSite.textContent = host;
     row.appendChild(tdSite);
 
-    // Tab
     const tdTab = document.createElement("td");
     const cbTab = document.createElement("input");
     cbTab.type = "checkbox";
-    cbTab.dataset.h = host; // Short attr
-    cbTab.dataset.s = "t";  // t = tab
+    cbTab.dataset.h = host;
+    cbTab.dataset.s = "t";
     cbTab.checked = s.enableTab !== false;
     tdTab.appendChild(cbTab);
     row.appendChild(tdTab);
 
-    // Panel
     if (showPanel) {
       const tdPanel = document.createElement("td");
       tdPanel.className = "panel-column";
       const cbPanel = document.createElement("input");
       cbPanel.type = "checkbox";
       cbPanel.dataset.h = host;
-      cbPanel.dataset.s = "p"; // p = panel
+      cbPanel.dataset.s = "p";
       cbPanel.checked = s.enablePanel !== false;
       tdPanel.appendChild(cbPanel);
       row.appendChild(tdPanel);
@@ -91,8 +93,7 @@ function renderSites(cfg, showPanel) {
   }
 
   table.appendChild(tbody);
-  frag.appendChild(table);
-  wrap.appendChild(frag);
+  wrap.appendChild(table);
 }
 
 async function load() {
@@ -105,7 +106,6 @@ async function load() {
   $("debounceMs").value = cfg.debounceMs;
   $("armMinutes").value = cfg.armMinutes;
   $("exitOnExpand").checked = !!cfg.exitOnExpand;
-  $("showFloatingButton").checked = cfg.showFloatingButton !== false;
   $("showBlockAlerts").checked = cfg.showBlockAlerts !== false;
   $("tabSwitchDelay").value = cfg.tabSwitchDelay;
 
@@ -123,26 +123,28 @@ const save = async () => {
     debounceMs: +$("debounceMs").value,
     armMinutes: +$("armMinutes").value,
     exitOnExpand: $("exitOnExpand").checked,
-    showFloatingButton: $("showFloatingButton").checked,
     showBlockAlerts: $("showBlockAlerts").checked,
     tabSwitchDelay: +$("tabSwitchDelay").value,
     siteSettings: {}
   };
 
-  // Efficient O(N) gather
-  // Use getElementsByTagName for speed vs querySelectorAll
-  const inputs = $("sites").getElementsByTagName("input");
-  for (let i = 0, l = inputs.length; i < l; i++) {
+  const sitesEl = $("sites");
+  const inputs = sitesEl.getElementsByTagName("input");
+  const inputsLen = inputs.length;
+  const siteSettings = cfg.siteSettings;
+
+  for (let i = 0; i < inputsLen; i++) {
     const el = inputs[i];
     const h = el.dataset.h;
-    const s = el.dataset.s;
     if (!h) continue;
-
-    // Ensure object exists
-    if (!cfg.siteSettings[h]) cfg.siteSettings[h] = { enableTab: true, enablePanel: true };
-
-    if (s === "t") cfg.siteSettings[h].enableTab = el.checked;
-    else if (s === "p") cfg.siteSettings[h].enablePanel = el.checked;
+    const s = el.dataset.s;
+    let siteCfg = siteSettings[h];
+    if (!siteCfg) {
+      siteCfg = { enableTab: true, enablePanel: true };
+      siteSettings[h] = siteCfg;
+    }
+    if (s === "t") siteCfg.enableTab = el.checked;
+    else if (s === "p") siteCfg.enablePanel = el.checked;
   }
 
   await chrome.storage.sync.set(cfg);
@@ -158,7 +160,6 @@ const debouncedSave = () => {
   timer = setTimeout(save, 500);
 };
 
-// Event Delegation (Single listener)
 document.addEventListener("change", (e) => {
   if (e.target.tagName === "INPUT") debouncedSave();
 });
@@ -168,4 +169,3 @@ document.addEventListener("input", (e) => {
 });
 
 load();
-

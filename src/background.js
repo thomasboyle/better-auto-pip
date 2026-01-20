@@ -8,7 +8,6 @@ const DEFAULTS = {
   siteEnabled: {},
   enableTabSwitch: true,
   tabSwitchDelay: 500,
-  showFloatingButton: true,
   showBlockAlerts: true
 };
 
@@ -17,14 +16,20 @@ let IS_VIVALDI = false;
 let LAST_TAB = null;
 const TIMERS = {};
 const INJECTED = new Set();
+const HOST_CACHE = new Map();
+const HOST_CACHE_MAX = 100;
+const URL_HOST_RE = /^https?:\/\/([^\/?#]+)/i;
 
-const DEBUG = false;
-const log = () => { };
-
-chrome.storage.sync.get(DEFAULTS, (c) => CFG = { ...DEFAULTS, ...c });
+chrome.storage.sync.get(DEFAULTS, (c) => {
+  const cfg = CFG;
+  for (const k in DEFAULTS) cfg[k] = k in c ? c[k] : DEFAULTS[k];
+  CFG = cfg;
+});
 chrome.storage.onChanged.addListener((changes) => {
+  const cfg = CFG;
+  const defs = DEFAULTS;
   for (const k in changes) {
-    if (DEFAULTS.hasOwnProperty(k)) CFG[k] = changes[k].newValue;
+    if (k in defs) cfg[k] = changes[k].newValue;
   }
 });
 
@@ -47,20 +52,41 @@ chrome.storage.onChanged.addListener((changes) => {
 })();
 
 const getHost = (url) => {
-  try { return new URL(url).host; } catch { return ""; }
+  if (!url) return "";
+  const cached = HOST_CACHE.get(url);
+  if (cached !== undefined) return cached;
+  let host = "";
+  const match = url.match(URL_HOST_RE);
+  if (match) {
+    host = match[1];
+  } else {
+    try {
+      host = new URL(url).host;
+    } catch {
+      host = "";
+    }
+  }
+  if (HOST_CACHE.size >= HOST_CACHE_MAX) {
+    const firstKey = HOST_CACHE.keys().next().value;
+    HOST_CACHE.delete(firstKey);
+  }
+  HOST_CACHE.set(url, host);
+  return host;
 };
 
 const isSiteEnabled = (url) => {
   if (!url) return false;
   const host = getHost(url);
-  return host && CFG.siteEnabled[host] !== false;
+  if (!host) return false;
+  const se = CFG.siteEnabled;
+  return !se || se[host] !== false;
 };
 
 async function ensureScript(tabId) {
   if (INJECTED.has(tabId)) return true;
   try {
     const r = await chrome.tabs.sendMessage(tabId, { action: "ping" }).catch(() => null);
-    if (r?.pong) {
+    if (r && r.pong) {
       INJECTED.add(tabId);
       return true;
     }
@@ -74,21 +100,23 @@ async function ensureScript(tabId) {
 }
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  if (!CFG.enabled || !CFG.enableTabSwitch) return;
+  const cfg = CFG;
+  if (!cfg.enabled || !cfg.enableTabSwitch) return;
 
   const newTabId = activeInfo.tabId;
   const oldTabId = LAST_TAB;
   LAST_TAB = newTabId;
 
-  if (TIMERS[newTabId]) {
-    clearTimeout(TIMERS[newTabId]);
+  const timer = TIMERS[newTabId];
+  if (timer) {
+    clearTimeout(timer);
     delete TIMERS[newTabId];
   }
 
   if (oldTabId && oldTabId !== newTabId) {
     try {
       const tab = await chrome.tabs.get(oldTabId);
-      if (tab?.url && isSiteEnabled(tab.url)) {
+      if (tab && tab.url && isSiteEnabled(tab.url)) {
         if (await ensureScript(oldTabId)) {
           chrome.tabs.sendMessage(oldTabId, { action: "tryPiP", reason: "tabSwitch" })
             .catch(() => INJECTED.delete(oldTabId));
@@ -98,7 +126,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   }
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading') {
     INJECTED.delete(tabId);
   }
@@ -106,16 +134,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   INJECTED.delete(tabId);
-  if (TIMERS[tabId]) {
-    clearTimeout(TIMERS[tabId]);
+  const timer = TIMERS[tabId];
+  if (timer) {
+    clearTimeout(timer);
     delete TIMERS[tabId];
   }
   if (LAST_TAB === tabId) LAST_TAB = null;
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendRespond) => {
-  const tabId = sender.tab?.id;
-
   if (msg.action === "isVivaldi") {
     if (!IS_VIVALDI) {
       sendRespond({ isVivaldi: false, isPanel: false });
@@ -130,17 +157,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendRespond) => {
         let isPanel = false;
         if (win && win.vivExtData) {
           const dataStr = typeof win.vivExtData === 'string' ? win.vivExtData : null;
-          if (!dataStr || (dataStr.includes("SELECTED_PANEL") || dataStr.includes("SHOW_PANEL"))) {
+          if (!dataStr || dataStr.includes("SELECTED_PANEL") || dataStr.includes("SHOW_PANEL")) {
             try {
               const data = dataStr ? JSON.parse(dataStr) : win.vivExtData;
               const webPanelActive = (data.SELECTED_PANEL && data.SELECTED_PANEL.startsWith("WEBPANEL_")) || data.SHOW_PANEL;
 
               if (webPanelActive) {
                 let t = sender.tab;
-                if (!t.width) t = await chrome.tabs.get(tabId);
+                if (!t.width) t = await chrome.tabs.get(sender.tab.id);
 
-                if (t.width && win.width && (t.width / win.width < 0.7)) {
-                  isPanel = true;
+                if (t.width && win.width) {
+                  const ratio = t.width / win.width;
+                  if (ratio < 0.7) isPanel = true;
                 }
               }
             } catch { }
